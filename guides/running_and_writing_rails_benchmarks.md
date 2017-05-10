@@ -1,13 +1,22 @@
-# Running benchmarks locally
+# Run rails benchmark
 
-1. `RAILS_MASTER=1 bundle install`
-2. To run rails benchmarks in mysql2 : `RAILS_MASTER=1 DATABASE_URL=mysql2://root@'localhost':3306/rubybench ruby benchmarks/bm_activerecord_destroy.rb`
+1. `cd rails/`
+2. `RAILS_MASTER=1 bundle install`
+3. Create `rubybench` postgres database or use existing one
 
-  To run rails benchmarks in postgres : `RAILS_MASTER=1 DATABASE_URL=postgres://postgres@'localhost':5432/rubybench ruby benchmarks/bm_activerecord_destroy.rb`
+Finally, if you want to run benchmarks in `postgres`, run:
+```
+RAILS_MASTER=1 DATABASE_URL=postgres://postgres:postgres@localhost:5432/rubybench ruby benchmarks/bm_activerecord_destroy.rb
+```
 
-  Specify your file instead of `bm_activerecord_destroy.rb`.`DATABASE_URL` key is required when running ActiveRecord benchmarks.
+If you want in `mysql2` run:
+```
+RAILS_MASTER=1 DATABASE_URL=mysql2://root@'localhost':3306/rubybench ruby benchmarks/bm_activerecord_destroy.rb
+```
 
-3. Benchmark result will be printed as JSON.
+Specify your file instead of `bm_activerecord_destroy.rb`.`DATABASE_URL` key is required when running ActiveRecord benchmarks.
+
+Benchmark result will be printed as JSON.
 
 # Adding new Rails benchmarks
 
