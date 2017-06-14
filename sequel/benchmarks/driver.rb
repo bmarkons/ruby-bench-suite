@@ -11,15 +11,14 @@ require 'digest'
 
 RAW_URL = 'https://raw.githubusercontent.com/ruby-bench/ruby-bench-suite/master/sequel/benchmarks/'
 
-postgres_tcp_addr = ENV['POSTGRES_PORT_5432_TCP_ADDR'] || 'localhost'
-postgres_port = ENV['POSTGRES_PORT_5432_TCP_PORT'] || 5432
-mysql_tcp_addr = ENV['MYSQL_PORT_3306_TCP_ADDR'] || 'localhost'
-mysql_port = ENV['MYSQL_PORT_3306_TCP_PORT'] || 3306
+POSTGRES_TCP_ADDR = ENV['POSTGRES_PORT_5432_TCP_ADDR'] || 'localhost'
+POSTGRES_PORT = ENV['POSTGRES_PORT_5432_TCP_PORT'] || 5432
 
-DATABASE_URLS = {
-  psql: "postgres://postgres@#{postgres_tcp_addr}:#{postgres_port}/rubybench",
-  mysql: "mysql2://root@#{mysql_tcp_addr}:#{mysql_port}/rubybench",
-}
+MYSQL_TCP_ADDR = ENV['MYSQL_PORT_3306_TCP_ADDR'] || 'localhost'
+MYSQL_PORT = ENV['MYSQL_PORT_3306_TCP_PORT'] || 3306
+
+PSQL_URL  = "postgres://postgres@#{POSTGRES_TCP_ADDR}:#{POSTGRES_PORT}/rubybench"
+MYSQL_URL = "mysql2://root@#{MYSQL_TCP_ADDR}:#{MYSQL_PORT}/rubybench"
 
 class BenchmarkDriver
   def self.benchmark(options)
@@ -32,15 +31,37 @@ class BenchmarkDriver
   end
 
   def run
-    files.each do |path|
-      next if !@pattern.empty? && /#{@pattern.join('|')}/ !~ File.basename(path)
-      DATABASE_URLS.each do |database, url|
-        run_single(path, connection: url, database: database)
-      end
+    benchmark_files.each do |file|
+      next unless match_pattern?(file)
+
+      run_benchmark(file, database: :psql, connection: PSQL_URL)
+      run_benchmark(file, database: :mysql, connection: MYSQL_URL)
     end
   end
 
   private
+
+  def benchmark_files
+    Dir["#{File.expand_path(File.dirname(__FILE__))}/*"].select! { |path| path =~ /bm_.+/ }
+  end
+
+  def match_pattern?(path)
+    @pattern.empty? || /#{@pattern.join('|')}/ =~ File.basename(path)
+  end
+
+  def run_benchmark(file, database:, connection:)
+    with_prepared_statements    = execute command with_prepared_statements: true
+    without_prepared_statements = execute command with_prepared_statements: false
+
+    return if with_prepared_statements.nil? || without_prepared_statements.nil?
+
+    script_url = "#{RAW_URL}#{Pathname.new(file).basename}"
+    digest = generate_digest(file, database)
+
+    puts "Posting results to Web UI...."
+
+    # TODO
+  end
 
   def measure_sequel(script, connection, path, database)
     connection_string = Proc.new do |prepared_statements|
@@ -77,12 +98,6 @@ class BenchmarkDriver
 
   def default_form_data(output, path, database)
     data = {
-      'benchmark_type[category]' => output["label"],
-      'benchmark_type[script_url]' => "#{RAW_URL}#{Pathname.new(path).basename}",
-      'benchmark_type[digest]' => generate_digest(path, database),
-      'benchmark_run[environment]' => "#{`ruby -v`}",
-      'repo' => 'sequel',
-      'organization' => 'jeremyevans'
     }
 
     if(ENV['SEQUEL_COMMIT_HASH'])
@@ -93,39 +108,10 @@ class BenchmarkDriver
     data
   end
 
-  def submit_request(form_data, results)
+  def submit_request(form_data, )
     request = generate_request
-    request.set_form_data(form_data.merge(results))
+    request.set_form_data(form_data)
     endpoint.request(request)
-  end
-
-  def files
-    Dir["#{File.expand_path(File.dirname(__FILE__))}/*"].select! { |path| path =~ /bm_.+/ }
-  end
-
-  def run_single(path, connection: nil, database: nil)
-    script = "ruby #{path}"
-
-    if connection
-      measure_sequel(script, connection, path, database)
-    else
-      output = measure(script)
-      return unless output
-      form_data = default_form_data(output, path, database)
-
-      submit_request(form_data, {
-        "benchmark_run[result][iterations_per_second]" => output["iterations_per_second"].round(3),
-        'benchmark_result_type[name]' => 'Number of iterations per second',
-        'benchmark_result_type[unit]' => 'Iterations per second'
-      })
-
-      submit_request(form_data, {
-        "benchmark_run[result][total_allocated_objects_per_iteration]" => output["total_allocated_objects_per_iteration"],
-        'benchmark_result_type[name]' => 'Allocated objects',
-        'benchmark_result_type[unit]' => 'Objects'
-      })
-    end
-    puts "Posting results to Web UI...."
   end
 
   def endpoint
@@ -153,7 +139,10 @@ class BenchmarkDriver
 
       @repeat_count.times do
         result = JSON.parse(`#{script}`)
+
         puts "#{result["label"]} #{result["iterations_per_second"]}/ips"
+        puts "#{result["label"]} #{result["total_allocated_objects_per_iteration"]} objects"
+
         results << result
       end
 
